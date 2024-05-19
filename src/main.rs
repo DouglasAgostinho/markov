@@ -2,12 +2,12 @@
 use std::io;
 use std::{thread, time};
 
-fn get_max (table: [[f32; 7]; 8000]) -> i32 {
+fn get_max (table: [[f32; 7]; 7000]) -> i32 {
 
     let mut max: f32 = 0.0;
     let mut index: i32 = 0;
 
-    for i in 0..8000{
+    for i in 0..7000{
 
         if table[i][6] > max {
             max = table[i][6];
@@ -32,7 +32,7 @@ struct Vessel {
     time_prev: f32,
     e_prev: f32,
     reward: f32,
-    train_table: [[f32; 7]; 8000],
+    train_table: [[f32; 7]; 7000],
     _q_table: [[i32; 7]; 20000],
 
 }
@@ -140,9 +140,11 @@ impl Vessel{
         let out_flow = self.out_flow();
         
         for i in 1..7000{
+
             self.level = 1600.0;
             self.integral = 0.0;
             self.time_prev = 0.0;
+
             self.train_table[i][0] = in_flow;
             self.train_table[i][1] = level;
             self.train_table[i][2] = out_flow;            
@@ -206,6 +208,7 @@ impl Vessel{
             
         }
         
+        println!("{:?}", self.train_table);
         //let xess = get_max(self.train_table);
         //println!("{}", xess);
         //println!("{}", self.train_table[xess as usize][6]);
@@ -253,7 +256,7 @@ fn main() {
         time_prev: 0.0,
         e_prev: 0.0,   
         reward: 0.0,  
-        train_table: [[0f32; 7]; 8000],
+        train_table: [[0f32; 7]; 7000],
         _q_table: [[0i32; 7]; 20000],
     };
 
