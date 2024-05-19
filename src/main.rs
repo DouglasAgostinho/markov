@@ -1,6 +1,21 @@
 
 use std::io;
+use std::{thread, time};
 
+fn get_max (table: [[f32; 7]; 8000]) -> i32 {
+
+    let mut max: f32 = 0.0;
+    let mut index: i32 = 0;
+
+    for i in 0..8000{
+
+        if table[i][6] > max {
+            max = table[i][6];
+            index = i as i32;
+        }
+    }
+    return index;
+}
 
 struct Vessel {
         
@@ -16,6 +31,10 @@ struct Vessel {
     integral: f32,
     time_prev: f32,
     e_prev: f32,
+    reward: f32,
+    train_table: [[f32; 7]; 8000],
+    _q_table: [[i32; 7]; 20000],
+
 }
 
 impl Vessel{
@@ -28,7 +47,7 @@ impl Vessel{
         return self.out_valve * (self.level / 1000.0);
     }
 
-    fn pid_mv (&mut self, i: &f32) -> f32 {
+    fn pid_mv (&mut self, i: &f32){
         
         self.time = i * 0.1;
         
@@ -36,24 +55,30 @@ impl Vessel{
         let offset: f32 = 0.0;
         
         //calculations start
+
+        //println!("\n -----{}-----", i);
         
         let e: f32 = self.setpoint - self.level;
-        println!("e = {}", e);
+        //println!("e = {}", e);
         
         let p: f32 = self.kp * e;
-        println!("p = {}", p);
+        //println!("p = {}, kp= {}", p, self.kp);
         
+        //println!("integral = {}, ki = {}, time = {}, prev_time = {}", self.integral, self.ki, self.time, self.time_prev);
         self.integral = self.integral + (self.ki * e * (self.time - self.time_prev));
-        println!("integral = {}", self.integral);
+        
         
         let d = self.kd * (e - self.e_prev) / (self.time - self.time_prev);
-        println!("d = {}", d);
+        //println!("d = {}, kd = {}", d, self.kd);
         
         self.out_valve = (offset + p + self.integral + d) * -1.0;
+        //println!("Out valve = {}", self.out_valve);
         
         self.e_prev = e;
         self.time_prev = self.time;
         
+        //println!("\n -----{}-----", i);
+
         //self.level = self.level + self.out_valve;
 
         if self.out_valve > 99.9 {
@@ -64,8 +89,127 @@ impl Vessel{
             
         }
         
-        return self.out_valve;
+        //return self.out_valve;
 
+    }
+
+    fn run(&mut self){
+
+        for i in 1..10000{
+
+            println!("level is {:.3}", self.level);
+
+            let in_flow: f32 = self.in_flow(self.in_valve);
+    
+            let out_flow: f32 = self.out_flow();
+        
+            self.level = self.level + in_flow - out_flow;
+            
+            let i: f32 = i as f32;
+            
+            println!("MV is {:.3} & level is {:.3}", self.out_valve, self.level);
+            
+            self.pid_mv(&i);      
+    
+            println!("\n -----{}-----", i);
+            println!("In Flow is {:.2} & Out Flow is {:.2}", in_flow, out_flow);
+            println!("Level is {:.2} & Setpoint is {:.2}", self.level, self.setpoint);    
+            println!("Out Valve is {:.2}", self.out_valve);
+            println!(" -----{}-----\n", i);
+    
+            /*if (self.level < self.setpoint + 1.0) && (self.level > self.setpoint -1.0) {
+                break;
+            }*/
+            thread::sleep(time::Duration::from_millis(250));
+        } 
+    }
+
+    fn train(&mut self){
+        /*  Train table will be as follow
+            0 - in_flow,
+            1 - level,
+            2 - out_flow,
+            3 - p,
+            4 - i,
+            5 - d,
+            6 - reward,
+        */        
+
+        let in_flow = self.in_flow(self.in_valve);
+        let level = self.in_flow(self.level);
+        let out_flow = self.out_flow();
+        
+        for i in 1..7000{
+            self.level = 1600.0;
+            self.integral = 0.0;
+            self.time_prev = 0.0;
+            self.train_table[i][0] = in_flow;
+            self.train_table[i][1] = level;
+            self.train_table[i][2] = out_flow;            
+
+            self.train_table[i][3] = self.train_table[i - 1][3] + 0.001;   
+            self.train_table[i][4] = self.train_table[i - 1][4];
+            self.train_table[i][5] = self.train_table[i - 1][5];
+
+            if self.train_table[i][3] > 0.019 {
+
+                self.train_table[i][4] = self.train_table[i - 1][4] + 0.001;
+                self.train_table[i][3] = 0.001;
+            }                            
+
+            if self.train_table[i][4] > 0.019 {
+
+                self.train_table[i][5] = self.train_table[i - 1][5] + 0.001;
+                self.train_table[i][4] = 0.001;
+
+            }         
+
+            self.reward = 1000.0;
+            self.kp = self.train_table[i][3];
+            self.ki = self.train_table[i][4];
+            self.kd = self.train_table[i][5];
+
+            for j in 1..400 {
+
+                let in_flow: f32 = self.in_flow(self.in_valve);
+        
+                let out_flow: f32 = self.out_flow();
+            
+                self.level = self.level + in_flow - out_flow;
+                
+                let j: f32 = j as f32;                                
+                
+                self.pid_mv(&j);      
+
+                /*
+                println!("\n -----{}-----", j);
+                println!("In Flow is {:.2} & Out Flow is {:.2}", in_flow, out_flow);
+                println!("Level is {:.2} & Setpoint is {:.2}", self.level, self.setpoint);    
+                println!("Out Valve is {:.2}", self.out_valve);
+                println!(" -----{}-----\n", j);
+                */
+
+                self.reward = self.reward - 0.5;
+        
+                if (self.level > self.setpoint + 2.0) || (self.level < self.setpoint -2.0) {
+                    self.reward = self.reward - 0.1;
+                }                                   
+
+            }
+
+            //thread::sleep(time::Duration::from_millis(250));
+            //println!("-------------------------------------------");
+            //println!("-------------------------------------------");
+
+
+            self.train_table[i][6] = self.reward;            
+            
+        }
+        
+        //let xess = get_max(self.train_table);
+        //println!("{}", xess);
+        //println!("{}", self.train_table[xess as usize][6]);
+        //println!("{:?}", self.train_table[xess as usize]);
     }
 
 
@@ -107,42 +251,35 @@ fn main() {
         time: 0.0,
         integral: 0.0,
         time_prev: 0.0,
-        e_prev: 0.0,     
+        e_prev: 0.0,   
+        reward: 0.0,  
+        train_table: [[0f32; 7]; 8000],
+        _q_table: [[0i32; 7]; 20000],
     };
 
+    //let mut q_table: [[i32; 7]; 20000] = [[0i32; 7]; 20000];
+
     println!("Insert the valve opening value");
-    water_vessel.in_valve = get_num(water_vessel.in_valve);    
-
+    water_vessel.in_valve = get_num(water_vessel.in_valve);                
     
-    let mut act_mv: f32 = 0.0;
+    water_vessel.train();
 
-    for i in 1..240{
+    let xess = get_max(water_vessel.train_table);
+    println!("{}", xess);
+    println!("{:?}", water_vessel.train_table[xess as usize]);
 
-        let in_flow: f32 = water_vessel.in_flow(25.0);
+    water_vessel.kp = water_vessel.train_table[xess as usize][3];
+    water_vessel.ki = water_vessel.train_table[xess as usize][4];
+    water_vessel.kd = water_vessel.train_table[xess as usize][5];
 
-        let out_flow: f32 = water_vessel.out_flow();
-    
-        water_vessel.level = water_vessel.level + in_flow - out_flow;
-        
-        let i: f32 = i as f32;
-        
-        println!("MV is {:.3} & level is {:.3}", act_mv, water_vessel.level);
-        
-        act_mv = water_vessel.pid_mv(&i);
+    water_vessel.level = 1600.0;
+    water_vessel.integral = 0.0;
+    water_vessel.time_prev = 0.0;
 
-      
+    water_vessel.run();
 
-        println!("\n");
-        println!("In Flow is {:.2} & Out Flow is {:.2}", in_flow, out_flow);
-        println!("Level is {:.2} & Setpoint is {:.2}", water_vessel.level, water_vessel.setpoint);    
-        println!("Out Valve is {:.2}", water_vessel.out_valve);
-        println!("\n");
-
-        if (water_vessel.level < water_vessel.setpoint + 1.0) && (water_vessel.level > water_vessel.setpoint -1.0) {
-            break;
-        }
-        
-    }    
-    
+    let xess = get_max(water_vessel.train_table);
+    println!("{}", xess);
+    println!("{:?}", water_vessel.train_table[xess as usize]);
     
 }
