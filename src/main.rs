@@ -9,6 +9,7 @@ use std::time::Instant;
 //Constant definition
 const MAX: usize = 1120;        //Maximum size of training table & Train Loop
 const K_MAX: f32 = 0.0101;      //Maximum value of PID K factors (kp, ki, kd) for train loop
+const Q_MAX: usize = 1120;
 
 
 fn arg_max (table: [[f32; 7]; MAX]) -> i32 {
@@ -48,7 +49,7 @@ struct Vessel {
     e_prev: f32,
     reward: f32,
     train_table: [[f32; 7]; MAX],
-    _q_table: [[i32; 7]; 20000],    
+    q_table: [[f32; 7]; Q_MAX],
 }
 
 impl Vessel{
@@ -124,11 +125,11 @@ impl Vessel{
         } 
     }
 
-    fn train(&mut self, lv: f32, iv: f32, ov: f32, k_max: f32){
+    fn train(&mut self, lv: f32, iv: f32, ov: f32, k_max: f32, sp: f32){
         /*  Train table will be as follow
             0 - in_flow,
             1 - level,
-            2 - out_flow,
+            2 - setpoint,
             3 - p,
             4 - i,
             5 - d,
@@ -139,7 +140,7 @@ impl Vessel{
 
             self.train_table[i][0] = iv;
             self.train_table[i][1] = lv;
-            self.train_table[i][2] = ov;
+            self.train_table[i][2] = sp;
 
             self.train_table[i][3] = self.train_table[i - 1][3] + 0.001;   
             self.train_table[i][4] = self.train_table[i - 1][4];
@@ -171,6 +172,7 @@ impl Vessel{
             self.time_prev = 0.0;
 
             self.level = lv;
+            self.setpoint = sp;
             self.in_valve = iv;
             self.out_valve = ov;            
 
@@ -201,7 +203,7 @@ impl Vessel{
             
         }
         
-        println!("{:?}", self.train_table);
+        //println!("{:?}", self.train_table);
     }
 
 
@@ -241,25 +243,39 @@ fn main() {
         kp: 0.005,
         ki: 0.002,
         kd: 0.005,
-        setpoint: 500.0,
+        setpoint: 1600.0,
         time: 0.0,
         integral: 0.0,
         time_prev: 0.0,
         e_prev: 0.0,   
         reward: 0.0,  
         train_table: [[0f32; 7]; MAX],
-        _q_table: [[0i32; 7]; 20000],        
+        q_table: [[0f32; 7]; Q_MAX],
     };
 
     //let mut q_table: [[i32; 7]; 20000] = [[0i32; 7]; 20000];
     
-    water_vessel.train(1600.0, 25.0, 0.0, K_MAX);
+    
+    water_vessel.train(1600.0, 25.0, 0.0, K_MAX, 500.0);
+
+    
+
+    let xess: i32 = arg_max(water_vessel.train_table);
+    //println!("{}", xess);
+    
+
+    water_vessel.q_table[xess as usize] = water_vessel.train_table[xess as usize];
 
     println!(" Elapsed Time: {:?}", before.elapsed());
 
-    let xess: i32 = arg_max(water_vessel.train_table);
-    println!("{}", xess);
-    println!("{:?}", water_vessel.train_table[xess as usize]);
+    println!(" T {:?}", water_vessel.train_table[xess as usize]);
+    println!(" Q {:?}", water_vessel.q_table[xess as usize]);
+
+    let sure = arg_max(water_vessel.q_table);
+
+    println!("Sure {sure}");
+
+    
 
     water_vessel.kp = water_vessel.train_table[xess as usize][3];
     water_vessel.ki = water_vessel.train_table[xess as usize][4];
@@ -267,7 +283,7 @@ fn main() {
 
     water_vessel.in_valve = water_vessel.train_table[xess as usize][0];
     water_vessel.level = water_vessel.train_table[xess as usize][1];
-    water_vessel.out_valve = water_vessel.train_table[xess as usize][2];
+    water_vessel.setpoint = water_vessel.train_table[xess as usize][2];
 
     water_vessel.integral = 0.0;
     water_vessel.time_prev = 0.0;
